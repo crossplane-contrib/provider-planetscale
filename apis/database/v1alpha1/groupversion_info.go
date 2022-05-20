@@ -14,9 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains the core resources of the PlanetScale provider.
+// Package v1alpha1 contains the v1alpha1 group Sample resources of the PlanetScale provider.
 // +kubebuilder:object:generate=true
-// +groupName=planetscale.crossplane.io
+// +groupName=database.planetscale.crossplane.io
 // +versionName=v1alpha1
 package v1alpha1
 
@@ -27,7 +27,7 @@ import (
 
 // Package type metadata.
 const (
-	Group   = "planetscale.crossplane.io"
+	Group   = "database.planetscale.crossplane.io"
 	Version = "v1alpha1"
 )
 

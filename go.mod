@@ -1,12 +1,12 @@
-module github.com/crossplane/provider-template
+module github.com/crossplane/provider-planetscale
 
 go 1.17
 
 require (
 	github.com/crossplane/crossplane-runtime v0.15.0
 	github.com/crossplane/crossplane-tools v0.0.0-20220310165030-1f43fc12793e
-	github.com/google/go-cmp v0.5.6
 	github.com/pkg/errors v0.9.1
+	github.com/planetscale/planetscale-go v0.57.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
 	k8s.io/apimachinery v0.23.0
 	k8s.io/client-go v0.23.0
@@ -34,6 +34,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/google/go-cmp v0.5.7 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
 	github.com/google/uuid v1.1.2 // indirect
 	github.com/googleapis/gnostic v0.5.5 // indirect
