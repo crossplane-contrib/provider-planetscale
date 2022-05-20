@@ -1,0 +1,10 @@
+apiVersion: database.planetscale.crossplane.io/v1alpha1
+kind: Database
+metadata:
+  name: example
+spec:
+  forProvider:
+    organization: turkenh
+    notes: "Hello from Crossplane!"
+  providerConfigRef:
+    name: default

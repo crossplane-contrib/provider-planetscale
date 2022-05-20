@@ -64,10 +64,14 @@ spec:
               forProvider:
                 description: DatabaseParameters are the configurable fields of a Database.
                 properties:
-                  configurableField:
+                  notes:
+                    type: string
+                  organization:
+                    type: string
+                  region:
                     type: string
                 required:
-                - configurableField
+                - organization
                 type: object
               providerConfigRef:
                 default:
@@ -171,8 +175,10 @@ spec:
               atProvider:
                 description: DatabaseObservation are the observable fields of a Database.
                 properties:
-                  observableField:
+                  state:
                     type: string
+                required:
+                - state
                 type: object
               conditions:
                 description: Conditions of the resource.
