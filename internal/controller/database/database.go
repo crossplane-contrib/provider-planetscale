@@ -18,19 +18,18 @@ package database
 
 import (
 	"context"
-	"fmt"
-	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
-	"github.com/crossplane/crossplane-runtime/pkg/meta"
-	"github.com/planetscale/planetscale-go/planetscale"
 
 	"github.com/pkg/errors"
+	"github.com/planetscale/planetscale-go/planetscale"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	"github.com/crossplane/crossplane-runtime/pkg/connection"
 	"github.com/crossplane/crossplane-runtime/pkg/controller"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
+	"github.com/crossplane/crossplane-runtime/pkg/meta"
 	"github.com/crossplane/crossplane-runtime/pkg/ratelimiter"
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -161,19 +160,8 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	}
 
 	return managed.ExternalObservation{
-		// Return false when the external resource does not exist. This lets
-		// the managed resource reconciler know that it needs to call Create to
-		// (re)create the resource, or that it has successfully been deleted.
-		ResourceExists: true,
-
-		// Return false when the external resource exists, but it not up to date
-		// with the desired managed resource state. This lets the managed
-		// resource reconciler know that it needs to call Update.
+		ResourceExists:   true,
 		ResourceUpToDate: true,
-
-		// Return any details that may be required to connect to the external
-		// resource. These will be stored as the connection secret.
-		ConnectionDetails: managed.ConnectionDetails{},
 	}, nil
 }
 
@@ -191,6 +179,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	if cr.Spec.ForProvider.Region != nil {
 		region = *cr.Spec.ForProvider.Region
 	}
+
 	db, err := c.service.pCLI.Databases.Create(ctx, &planetscale.CreateDatabaseRequest{
 		Organization: cr.Spec.ForProvider.Organization,
 		Name:         meta.GetExternalName(cr),
@@ -198,28 +187,21 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		Region:       region,
 	})
 
-	cr.Status.AtProvider.State = string(db.State)
+	if err != nil {
+		return managed.ExternalCreation{}, err
+	}
 
+	cr.Status.AtProvider.State = string(db.State)
 	return managed.ExternalCreation{
 		// Optionally return any details that may be required to connect to the
 		// external resource. These will be stored as the connection secret.
 		ConnectionDetails: managed.ConnectionDetails{},
-	}, err
+	}, nil
 }
 
-func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
-	cr, ok := mg.(*v1alpha1.Database)
-	if !ok {
-		return managed.ExternalUpdate{}, errors.New(errNotDatabase)
-	}
-
-	fmt.Printf("Updating: %+v", cr)
-
-	return managed.ExternalUpdate{
-		// Optionally return any details that may be required to connect to the
-		// external resource. These will be stored as the connection secret.
-		ConnectionDetails: managed.ConnectionDetails{},
-	}, nil
+func (c *external) Update(_ context.Context, _ resource.Managed) (managed.ExternalUpdate, error) {
+	// No update required for this resource
+	return managed.ExternalUpdate{}, nil
 }
 
 func (c *external) Delete(ctx context.Context, mg resource.Managed) error {

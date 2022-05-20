@@ -18,9 +18,9 @@ package password
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/planetscale/planetscale-go/planetscale"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,6 +28,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/connection"
 	"github.com/crossplane/crossplane-runtime/pkg/controller"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
+	"github.com/crossplane/crossplane-runtime/pkg/meta"
 	"github.com/crossplane/crossplane-runtime/pkg/ratelimiter"
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -38,7 +39,7 @@ import (
 )
 
 const (
-	errNotPassword    = "managed resource is not a Password custom resource"
+	errNotPassword  = "managed resource is not a Password custom resource"
 	errTrackPCUsage = "cannot track ProviderConfig usage"
 	errGetPC        = "cannot get ProviderConfig"
 	errGetCreds     = "cannot get credentials"
@@ -46,11 +47,18 @@ const (
 	errNewClient = "cannot create new Service"
 )
 
-// A NoOpService does nothing.
-type NoOpService struct{}
+// A PlanetScaleService does nothing.
+type PlanetScaleService struct {
+	pCLI *planetscale.Client
+}
 
 var (
-	newNoOpService = func(_ []byte) (interface{}, error) { return &NoOpService{}, nil }
+	newPlanetScaleService = func(creds []byte) (*PlanetScaleService, error) {
+		c, err := planetscale.NewClient(planetscale.WithAccessToken(string(creds)))
+		return &PlanetScaleService{
+			pCLI: c,
+		}, err
+	}
 )
 
 // Setup adds a controller that reconciles Password managed resources.
@@ -67,7 +75,7 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 		managed.WithExternalConnecter(&connector{
 			kube:         mgr.GetClient(),
 			usage:        resource.NewProviderConfigUsageTracker(mgr.GetClient(), &apisv1alpha1.ProviderConfigUsage{}),
-			newServiceFn: newNoOpService}),
+			newServiceFn: newPlanetScaleService}),
 		managed.WithLogger(o.Logger.WithValues("controller", name)),
 		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
 		managed.WithConnectionPublishers(cps...))
@@ -84,7 +92,7 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 type connector struct {
 	kube         client.Client
 	usage        resource.Tracker
-	newServiceFn func(creds []byte) (interface{}, error)
+	newServiceFn func(creds []byte) (*PlanetScaleService, error)
 }
 
 // Connect typically produces an ExternalClient by:
@@ -126,7 +134,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 type external struct {
 	// A 'client' used to connect to the external resource API. In practice this
 	// would be something like an AWS SDK client.
-	service interface{}
+	service *PlanetScaleService
 }
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
@@ -135,24 +143,24 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.New(errNotPassword)
 	}
 
-	// These fmt statements should be removed in the real implementation.
-	fmt.Printf("Observing: %+v", cr)
+	p, err := c.service.pCLI.Passwords.Get(ctx, &planetscale.GetDatabaseBranchPasswordRequest{
+		Organization: cr.Spec.ForProvider.Organization,
+		Database:     *cr.Spec.ForProvider.Database,
+		Branch:       cr.Spec.ForProvider.Branch,
+		DisplayName:  cr.Name,
+		PasswordId:   meta.GetExternalName(cr),
+	})
+
+	if pErr, ok := err.(*planetscale.Error); ok && pErr.Code == planetscale.ErrNotFound {
+		return managed.ExternalObservation{
+			ResourceExists: false,
+		}, nil
+	}
 
 	return managed.ExternalObservation{
-		// Return false when the external resource does not exist. This lets
-		// the managed resource reconciler know that it needs to call Create to
-		// (re)create the resource, or that it has successfully been deleted.
-		ResourceExists: true,
-
-		// Return false when the external resource exists, but it not up to date
-		// with the desired managed resource state. This lets the managed
-		// resource reconciler know that it needs to call Update.
-		ResourceUpToDate: true,
-
-		// Return any details that may be required to connect to the external
-		// resource. These will be stored as the connection secret.
-		ConnectionDetails: managed.ConnectionDetails{},
-	}, nil
+		ResourceExists:   true,
+		ResourceUpToDate: p.Name != cr.GetName(),
+	}, err
 }
 
 func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.ExternalCreation, error) {
@@ -161,28 +169,34 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.New(errNotPassword)
 	}
 
-	fmt.Printf("Creating: %+v", cr)
+	p, err := c.service.pCLI.Passwords.Create(ctx, &planetscale.DatabaseBranchPasswordRequest{
+		Organization: cr.Spec.ForProvider.Organization,
+		Database:     *cr.Spec.ForProvider.Database,
+		Branch:       cr.Spec.ForProvider.Branch,
+		DisplayName:  cr.Name,
+	})
+	if err != nil {
+		return managed.ExternalCreation{}, err
+	}
+
+	meta.SetExternalName(cr, p.PublicID)
+	cr.Status.AtProvider.ID = p.PublicID
 
 	return managed.ExternalCreation{
 		// Optionally return any details that may be required to connect to the
 		// external resource. These will be stored as the connection secret.
-		ConnectionDetails: managed.ConnectionDetails{},
-	}, nil
+		ConnectionDetails: managed.ConnectionDetails{
+			"host":     []byte(p.Branch.AccessHostURL),
+			"username": []byte(p.PublicID),
+			"password": []byte(p.PlainText),
+			"database": []byte(*cr.Spec.ForProvider.Database),
+		},
+	}, err
 }
 
-func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
-	cr, ok := mg.(*v1alpha1.Password)
-	if !ok {
-		return managed.ExternalUpdate{}, errors.New(errNotPassword)
-	}
-
-	fmt.Printf("Updating: %+v", cr)
-
-	return managed.ExternalUpdate{
-		// Optionally return any details that may be required to connect to the
-		// external resource. These will be stored as the connection secret.
-		ConnectionDetails: managed.ConnectionDetails{},
-	}, nil
+func (c *external) Update(_ context.Context, _ resource.Managed) (managed.ExternalUpdate, error) {
+	// No update required for this resource
+	return managed.ExternalUpdate{}, nil
 }
 
 func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
@@ -191,7 +205,11 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 		return errors.New(errNotPassword)
 	}
 
-	fmt.Printf("Deleting: %+v", cr)
-
-	return nil
+	return c.service.pCLI.Passwords.Delete(ctx, &planetscale.DeleteDatabaseBranchPasswordRequest{
+		Organization: cr.Spec.ForProvider.Organization,
+		Database:     *cr.Spec.ForProvider.Database,
+		Branch:       cr.Spec.ForProvider.Branch,
+		DisplayName:  cr.Name,
+		PasswordId:   meta.GetExternalName(cr),
+	})
 }

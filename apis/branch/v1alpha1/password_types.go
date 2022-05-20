@@ -27,12 +27,18 @@ import (
 
 // PasswordParameters are the configurable fields of a Password.
 type PasswordParameters struct {
-	ConfigurableField string `json:"configurableField"`
+	Organization string `json:"organization"`
+	// +optional
+	// +crossplane:generate:reference:type=github.com/crossplane/provider-planetscale/apis/database/v1alpha1.Database
+	Database         *string         `json:"database,omitempty"`
+	DatabaseRef      *xpv1.Reference `json:"databaseRef,omitempty"`
+	DatabaseSelector *xpv1.Selector  `json:"databaseSelector,omitempty"`
+	Branch           string          `json:"branch"`
 }
 
 // PasswordObservation are the observable fields of a Password.
 type PasswordObservation struct {
-	ObservableField string `json:"observableField,omitempty"`
+	ID string `json:"id"`
 }
 
 // A PasswordSpec defines the desired state of a Password.
